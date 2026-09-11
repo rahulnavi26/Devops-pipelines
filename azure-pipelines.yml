@@ -1,0 +1,92 @@
+trigger:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  pythonVersion: '3.10'
+
+steps:
+
+# 1. Checkout source code
+- checkout: self
+  displayName: 'Checkout Source Code'
+
+# 2. Setup Python 3.10
+- task: UsePythonVersion@0
+  inputs:
+    versionSpec: '$(pythonVersion)'
+    addToPath: true
+  displayName: 'Setup Python 3.10'
+
+# 3. Verify Python Version
+- script: |
+    python --version
+    pip --version
+  displayName: 'Verify Python Installation'
+
+# 4. Upgrade pip
+- script: |
+    python -m pip install --upgrade pip
+  displayName: 'Upgrade pip'
+
+# 5. Install Project Dependencies
+- script: |
+    pip install -r requirement.txt
+  displayName: 'Install Dependencies'
+
+# 6. Verify Installed Packages
+- script: |
+    pip list
+  displayName: 'Verify Installed Packages'
+
+# 7. Validate Python Files
+- script: |
+    python -m py_compile app.py
+    python -m py_compile house.py
+  displayName: 'Validate Python Code'
+
+# 8. Create Test Results Folder
+- script: |
+    mkdir -p test-results
+  displayName: 'Create Test Results Folder'
+
+# 9. Run Unit Tests
+- script: |
+    pytest test_app_50_cases.py \
+      -v \
+      -ra \
+      --junitxml=test-results/junit.xml \
+      --html=test-results/unit-test-report.html \
+      --self-contained-html
+  displayName: 'Run Unit Tests'
+  continueOnError: true
+
+# 10. Publish Test Results
+- task: PublishTestResults@2
+  displayName: 'Publish Unit Test Results'
+  condition: always()
+  inputs:
+    testResultsFormat: 'JUnit'
+    testResultsFiles: 'test-results/junit.xml'
+    testRunTitle: 'House Price Prediction Tests'
+    failTaskOnFailedTests: false
+
+# 11. Publish HTML Report
+- task: PublishPipelineArtifact@1
+  displayName: 'Publish HTML Test Report'
+  condition: always()
+  inputs:
+    targetPath: 'test-results'
+    artifact: 'Test-Reports'
+    publishLocation: 'pipeline'
+
+# 12. Start Flask Application
+- script: |
+    python app.py &
+    sleep 10
+    echo "Flask application started successfully"
+  displayName: 'Start Flask Application'
