@@ -54,7 +54,7 @@ stages:
       displayName: "Validate Python Files"
 
 # ============================================================
-# STAGE 2 - SONARCLOUD
+# STAGE 2 - SONARCLOUD ANALYSIS
 # ============================================================
 
 - stage: SonarCloud
@@ -93,21 +93,21 @@ stages:
         cliSources: '.'
 
     - task: SonarCloudAnalyze@3
-      displayName: 'Run SonarCloud Analysis'
+      displayName: "Run SonarCloud Analysis"
 
     - task: SonarCloudPublish@3
       inputs:
         pollingTimeoutSec: '300'
-      displayName: 'Publish Quality Gate'
+      displayName: "Publish Quality Gate"
 
 # ============================================================
-# STAGE 3 - TRIVY
+# STAGE 3 - TRIVY SECURITY SCAN
 # ============================================================
 
 - stage: Trivy
   displayName: "Trivy Security Scan"
   dependsOn: SonarCloud
-  condition: succeededOrFailed()
+  condition: succeeded()
 
   jobs:
   - job: TrivyScan
@@ -127,6 +127,43 @@ stages:
       displayName: "Install Trivy"
 
     - script: |
-        trivy fs . --severity HIGH,CRITICAL
+        trivy fs . \
+          --severity HIGH,CRITICAL \
+          --exit-code 1
       displayName: "Run Trivy Scan"
-      continueOnError: true
+
+# ============================================================
+# STAGE 4 - RUN FLASK APPLICATION
+# ============================================================
+
+- stage: RunApp
+  displayName: "Run Flask App"
+  dependsOn: Trivy
+  condition: succeeded()
+
+  jobs:
+  - job: FlaskRun
+    displayName: "Start Flask Application"
+
+    steps:
+
+    - checkout: self
+
+    - task: UsePythonVersion@0
+      inputs:
+        versionSpec: '$(pythonVersion)'
+        addToPath: true
+
+    - script: |
+        python -m pip install --upgrade pip
+        python -m pip install --upgrade setuptools wheel
+        pip install -r requirement.txt
+      displayName: "Install Dependencies"
+
+    - script: |
+        nohup python app.py > flask.log 2>&1 &
+        sleep 15
+
+        echo "Application started"
+        cat flask.log
+      displayName: "Start Flask Application"
