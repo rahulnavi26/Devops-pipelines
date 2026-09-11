@@ -6,71 +6,148 @@ trigger:
 pool:
   vmImage: 'ubuntu-latest'
 
-steps:
+variables:
+  pythonVersion: '3.12'
 
-# Checkout Code
-- checkout: self
-  fetchDepth: 0
+stages:
 
-# Setup Python
-- task: UsePythonVersion@0
-  inputs:
-    versionSpec: '3.12'
-    addToPath: true
-  displayName: 'Setup Python'
+# ============================================================
+# STAGE 1 - BUILD
+# ============================================================
 
-# Upgrade pip
-- script: |
-    python -m pip install --upgrade pip
-  displayName: 'Upgrade Pip'
+- stage: Build
+  displayName: "Build Application"
 
-# Install Dependencies
-- script: |
-    pip install -r requirement.txt
-  displayName: 'Install Dependencies'
+  jobs:
+  - job: BuildJob
+    displayName: "Python Build"
 
-# =====================================
-# SonarQube Cloud Preparation
-# =====================================
+    steps:
 
-- task: SonarCloudPrepare@3
-  displayName: 'Prepare SonarCloud Analysis'
-  inputs:
-    SonarCloud: 'SonarCloud-ServiceConnection'
-    organization: 'rahulnavi26'
-    scannerMode: 'CLI'
-    configMode: 'manual'
-    cliProjectKey: 'rahulnavi26_Devops-pipelines'
-    cliProjectName: 'Devops-pipelines'
-    cliSources: '.'
+    - checkout: self
+      fetchDepth: 0
 
-# Run Analysis
-- task: SonarCloudAnalyze@3
-  displayName: 'Run SonarCloud Analysis'
+    - task: UsePythonVersion@0
+      inputs:
+        versionSpec: '$(pythonVersion)'
+        addToPath: true
 
-# Publish Quality Gate
-- task: SonarCloudPublish@3
-  displayName: 'Publish Quality Gate'
-  inputs:
-    pollingTimeoutSec: '300'
+    - script: |
+        python --version
+        pwd
+        ls -la
+      displayName: "Verify Environment"
 
-# =====================================
-# Install Trivy
-# =====================================
+    - script: |
+        python -m pip install --upgrade pip
+      displayName: "Upgrade Pip"
 
-- script: |
-    sudo apt-get update
-    sudo apt-get install wget -y
+    - script: |
+        pip install -r requirement.txt
+      displayName: "Install Dependencies"
 
-    wget https://github.com/aquasecurity/trivy/releases/latest/download/trivy_0.66.0_Linux-64bit.deb
+    - script: |
+        python -m py_compile app.py
+        python -m py_compile house.py
+      displayName: "Validate Python Files"
 
-    sudo dpkg -i trivy_0.66.0_Linux-64bit.deb
-  displayName: 'Install Trivy'
 
-# =====================================
-# Trivy Filesystem Scan
-# =====================================
+# ============================================================
+# STAGE 2 - SONARCLOUD
+# ============================================================
 
-- script: |
-    trivy fs . --severity HIGH,CRITICAL
-  displayName: 'Run Trivy Scan'
+- stage: SonarCloud
+  displayName: "SonarCloud Analysis"
+
+  dependsOn: Build
+
+  jobs:
+  - job: SonarAnalysis
+    displayName: "Run SonarCloud"
+
+    steps:
+
+    - checkout: self
+      fetchDepth: 0
+
+    - task: SonarCloudPrepare@3
+      inputs:
+        SonarCloud: 'SonarCloud-ServiceConnection'
+        organization: 'rahulnavi26'
+        scannerMode: 'CLI'
+        configMode: 'manual'
+        cliProjectKey: 'rahulnavi26_Devops-pipelines'
+        cliProjectName: 'Devops-pipelines'
+        cliSources: '.'
+
+    - task: SonarCloudAnalyze@3
+      displayName: 'Run SonarCloud Analysis'
+
+    - task: SonarCloudPublish@3
+      inputs:
+        pollingTimeoutSec: '300'
+      displayName: 'Publish Quality Gate'
+
+
+# ============================================================
+# STAGE 3 - TRIVY SCAN
+# ============================================================
+
+- stage: Trivy
+  displayName: "Trivy Security Scan"
+
+  dependsOn: SonarCloud
+
+  jobs:
+  - job: TrivyScan
+    displayName: "Filesystem Scan"
+
+    steps:
+
+    - checkout: self
+
+    - script: |
+        sudo apt-get update
+        sudo apt-get install wget -y
+
+        wget https://github.com/aquasecurity/trivy/releases/latest/download/trivy_0.66.0_Linux-64bit.deb
+
+        sudo dpkg -i trivy_0.66.0_Linux-64bit.deb
+      displayName: "Install Trivy"
+
+    - script: |
+        trivy fs . \
+        --format table \
+        --severity HIGH,CRITICAL
+      displayName: "Run Trivy Scan"
+
+
+# ============================================================
+# STAGE 4 - RUN APPLICATION
+# ============================================================
+
+- stage: RunApp
+  displayName: "Run Flask App"
+
+  dependsOn: Trivy
+
+  jobs:
+  - job: FlaskRun
+
+    steps:
+
+    - checkout: self
+
+    - task: UsePythonVersion@0
+      inputs:
+        versionSpec: '$(pythonVersion)'
+        addToPath: true
+
+    - script: |
+        pip install -r requirement.txt
+      displayName: "Install Dependencies"
+
+    - script: |
+        python app.py &
+        sleep 15
+      displayName: "Start Flask Application"
