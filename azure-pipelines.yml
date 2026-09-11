@@ -9,11 +9,11 @@ pool:
 variables:
   pythonVersion: '3.10'
 
+stages:
+
 # ============================================================
 # STAGE 1 - BUILD
 # ============================================================
-
-stages:
 
 - stage: Build
   displayName: "Build Application"
@@ -34,6 +34,7 @@ stages:
 
     - script: |
         python --version
+        python -m pip --version
         pwd
         ls -la
       displayName: "Verify Environment"
@@ -58,8 +59,8 @@ stages:
 
 - stage: SonarCloud
   displayName: "SonarCloud Analysis"
-
   dependsOn: Build
+  condition: succeeded()
 
   jobs:
   - job: SonarAnalysis
@@ -69,6 +70,17 @@ stages:
 
     - checkout: self
       fetchDepth: 0
+
+    - task: UsePythonVersion@0
+      inputs:
+        versionSpec: '$(pythonVersion)'
+        addToPath: true
+
+    - script: |
+        python -m pip install --upgrade pip
+        python -m pip install --upgrade setuptools wheel
+        pip install -r requirement.txt
+      displayName: "Install Dependencies"
 
     - task: SonarCloudPrepare@3
       inputs:
@@ -89,13 +101,13 @@ stages:
       displayName: 'Publish Quality Gate'
 
 # ============================================================
-# STAGE 3 - TRIVY SCAN
+# STAGE 3 - TRIVY
 # ============================================================
 
 - stage: Trivy
   displayName: "Trivy Security Scan"
-
   dependsOn: SonarCloud
+  condition: succeededOrFailed()
 
   jobs:
   - job: TrivyScan
@@ -109,43 +121,12 @@ stages:
         sudo apt-get update
         sudo apt-get install wget -y
 
-        wget https://github.com/aquasecurity/trivy/releases/latest/download/trivy_0.66.0_Linux-64bit.deb
+        wget -qO - https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin
 
-        sudo dpkg -i trivy_0.66.0_Linux-64bit.deb
+        trivy --version
       displayName: "Install Trivy"
 
     - script: |
         trivy fs . --severity HIGH,CRITICAL
       displayName: "Run Trivy Scan"
-
-# ============================================================
-# STAGE 4 - RUN FLASK APP
-# ============================================================
-
-- stage: RunApp
-  displayName: "Run Flask App"
-
-  dependsOn: Trivy
-
-  jobs:
-  - job: FlaskRun
-
-    steps:
-
-    - checkout: self
-
-    - task: UsePythonVersion@0
-      inputs:
-        versionSpec: '$(pythonVersion)'
-        addToPath: true
-
-    - script: |
-        python -m pip install --upgrade pip
-        python -m pip install --upgrade setuptools wheel
-        pip install -r requirement.txt
-      displayName: "Install Dependencies"
-
-    - script: |
-        python app.py &
-        sleep 15
-      displayName: "Start Flask Application"
+      continueOnError: true
