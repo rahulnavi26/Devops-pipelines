@@ -7,13 +7,13 @@ pool:
   vmImage: 'ubuntu-latest'
 
 variables:
-  pythonVersion: '3.12'
-
-stages:
+  pythonVersion: '3.10'
 
 # ============================================================
 # STAGE 1 - BUILD
 # ============================================================
+
+stages:
 
 - stage: Build
   displayName: "Build Application"
@@ -40,7 +40,8 @@ stages:
 
     - script: |
         python -m pip install --upgrade pip
-      displayName: "Upgrade Pip"
+        python -m pip install --upgrade setuptools wheel
+      displayName: "Upgrade Pip Tools"
 
     - script: |
         pip install -r requirement.txt
@@ -50,7 +51,6 @@ stages:
         python -m py_compile app.py
         python -m py_compile house.py
       displayName: "Validate Python Files"
-
 
 # ============================================================
 # STAGE 2 - SONARCLOUD
@@ -88,7 +88,6 @@ stages:
         pollingTimeoutSec: '300'
       displayName: 'Publish Quality Gate'
 
-
 # ============================================================
 # STAGE 3 - TRIVY SCAN
 # ============================================================
@@ -116,14 +115,11 @@ stages:
       displayName: "Install Trivy"
 
     - script: |
-        trivy fs . \
-        --format table \
-        --severity HIGH,CRITICAL
+        trivy fs . --severity HIGH,CRITICAL
       displayName: "Run Trivy Scan"
 
-
 # ============================================================
-# STAGE 4 - RUN APPLICATION
+# STAGE 4 - RUN FLASK APP
 # ============================================================
 
 - stage: RunApp
@@ -144,6 +140,8 @@ stages:
         addToPath: true
 
     - script: |
+        python -m pip install --upgrade pip
+        python -m pip install --upgrade setuptools wheel
         pip install -r requirement.txt
       displayName: "Install Dependencies"
 
